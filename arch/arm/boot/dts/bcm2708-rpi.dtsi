@@ -33,6 +33,7 @@
 		usb = &usb;
 		leds = &leds;
 		fb = &fb;
+		vc4mem = &vc4mem;
 		vchiq = &vchiq;
 		thermal = &thermal;
 		axiperf = &axiperf;
@@ -61,6 +62,12 @@
 
 		fb: fb {
 			compatible = "brcm,bcm2708-fb";
+			firmware = <&firmware>;
+			status = "disabled";
+		};
+
+		vc4mem: vc4mem {
+			compatible = "brcm,vc4mem";
 			firmware = <&firmware>;
 			status = "disabled";
 		};

@@ -145,3 +145,7 @@
 	interrupt-parent = <&local_intc>;
 	interrupts = <8>;
 };
+
+&vc4mem {
+	status = "okay";
+};

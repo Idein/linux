@@ -1,0 +1,18 @@
+#
+# Idein char driver config
+#
+
+menuconfig IDEIN_CHAR_DRIVERS
+        bool "Idein Char Drivers"
+        help
+          Idein's char drivers
+
+if IDEIN_CHAR_DRIVERS
+
+config IDEIN_VC4MEM
+	tristate "Idein memory driver for VideoCore IV"
+	default y
+	help
+	  A driver for VideoCore IV memory alloc/free/sync.
+
+endif

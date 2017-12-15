@@ -20,3 +20,7 @@
 			   <&v7_cpu3>, "clock-frequency:0";
 	};
 };
+
+&vc4mem {
+	status = "okay";
+};
