@@ -10,9 +10,16 @@ menuconfig IDEIN_CHAR_DRIVERS
 if IDEIN_CHAR_DRIVERS
 
 config IDEIN_VC4MEM
-	tristate "Idein memory driver for VideoCore IV"
+	bool "Idein memory driver for VideoCore IV"
 	default y
+	depends on IDEIN_MAILBOX
 	help
 	  A driver for VideoCore IV memory alloc/free/sync.
+
+config IDEIN_MAILBOX
+	bool "Idein mailbox driver for Raspberry Pi"
+	default y
+	help
+	  A driver for Mailbox interface of Raspberry Pi.
 
 endif
