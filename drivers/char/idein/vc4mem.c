@@ -69,11 +69,9 @@ static dev_t vc4mem_devid;
 static struct class *vc4mem_class;
 static struct device *vc4mem_dev;
 
-struct vc4mem_dev_instance {
+static struct {
 	struct device *dev;
-};
-
-static struct vc4mem_dev_instance *inst;
+} inst;
 
 
 /* File ops */
@@ -82,10 +80,10 @@ static int vc4mem_open(struct inode *inode, struct file *file)
 {
 	int dev = iminor(inode);
 
-	dev_info(inst->dev, "vc4mem device opened\n");
+	dev_info(inst.dev, "vc4mem device opened\n");
 
 	if (dev != DEVICE_MINOR) {
-		dev_err(inst->dev, "%s: Unknown minor number: %d\n",
+		dev_err(inst.dev, "%s: Unknown minor number: %d\n",
 				__func__, dev);
 		return -ENXIO;
 	}
@@ -97,10 +95,10 @@ static int vc4mem_release(struct inode *inode, struct file *file)
 {
 	int dev = iminor(inode);
 
-	dev_info(inst->dev, "vc4mem device closing\n");
+	dev_info(inst.dev, "vc4mem device closing\n");
 
 	if (dev != DEVICE_MINOR) {
-		dev_err(inst->dev, "%s: Unknown minor number: %d\n",
+		dev_err(inst.dev, "%s: Unknown minor number: %d\n",
 				__func__, dev);
 		return -ENXIO;
 	}
@@ -118,9 +116,9 @@ static dma_addr_t alloc_mem(const unsigned size)
 	struct page *page;
 	dma_addr_t dma;
 
-	page = dma_alloc_from_contiguous(inst->dev, count, order);
+	page = dma_alloc_from_contiguous(inst.dev, count, order);
 	if (page == NULL) {
-		dev_err(inst->dev, "%s: Failed to allocate memory from CMA\n",
+		dev_err(inst.dev, "%s: Failed to allocate memory from CMA\n",
 				__func__);
 		return 0;
 	}
@@ -128,9 +126,9 @@ static dma_addr_t alloc_mem(const unsigned size)
 	 *      dmac_flush_range() here?
 	 */
 
-	dma = pfn_to_dma(inst->dev, page_to_pfn(page));
+	dma = pfn_to_dma(inst.dev, page_to_pfn(page));
 
-	dev_info(inst->dev, "%s: Allocated addr=0x%08x size=0x%08x page=0x%p\n",
+	dev_info(inst.dev, "%s: Allocated addr=0x%08x size=0x%08x page=0x%p\n",
 			__func__, (unsigned) dma, size, page);
 
 	return dma;
@@ -138,14 +136,14 @@ static dma_addr_t alloc_mem(const unsigned size)
 
 static int free_mem(const dma_addr_t dma, const unsigned size)
 {
-	struct page *page = pfn_to_page(dma_to_pfn(inst->dev, dma));
+	struct page *page = pfn_to_page(dma_to_pfn(inst.dev, dma));
 	const size_t count = size >> PAGE_SHIFT;
 
-	dev_info(inst->dev, "%s: Freeing addr=0x%08x size=0x%08x page=0x%p\n",
+	dev_info(inst.dev, "%s: Freeing addr=0x%08x size=0x%08x page=0x%p\n",
 			__func__, (unsigned) dma, size, page);
 
-	if (!dma_release_from_contiguous(inst->dev, page, count)) {
-		dev_err(inst->dev, "%s: Failed to free memory\n", __func__);
+	if (!dma_release_from_contiguous(inst.dev, page, count)) {
+		dev_err(inst.dev, "%s: Failed to free memory\n", __func__);
 		return 1;
 	}
 
@@ -180,15 +178,15 @@ static int sync_cache_cpu(const vc4mem_cpu_cache_op_t op,
 		dir = DMA_TO_DEVICE;
 		break;
 	default:
-		dev_err(inst->dev, "%s: Invalid cache op: %d\n",
+		dev_err(inst.dev, "%s: Invalid cache op: %d\n",
 				__func__, op);
 		return -EINVAL;
 	}
 
-	dev_info(inst->dev, "%s: Syncing addr=0x%08x size=0x%08x dir=%d\n",
+	dev_info(inst.dev, "%s: Syncing addr=0x%08x size=0x%08x dir=%d\n",
 			__func__, (unsigned) dma, size, dir);
 
-	sync_func(inst->dev, dma, size, dir);
+	sync_func(inst.dev, dma, size, dir);
 
 	return 0;
 }
@@ -203,7 +201,7 @@ static int ioctl_alloc_mem(unsigned long arg)
 	typeof(*ioparam.user.size) size[VC4MEM_MAX_NUM_REQS];
 
 	if (copy_from_user(&ioparam, (void*) arg, sizeof(ioparam))) {
-		dev_err(inst->dev, "%s: Failed to copy_from_user\n", __func__);
+		dev_err(inst.dev, "%s: Failed to copy_from_user\n", __func__);
 		return -EFAULT;
 	}
 
@@ -215,7 +213,7 @@ static int ioctl_alloc_mem(unsigned long arg)
 		dma = alloc_mem(size[i]);
 		if (dma == 0) {
 			unsigned j;
-			dev_err(inst->dev,
+			dev_err(inst.dev,
 					"%s: Failed to allocate memory at %d\n",
 					__func__, i);
 			for (j = 0; j < i; j ++)
@@ -226,7 +224,7 @@ static int ioctl_alloc_mem(unsigned long arg)
 	}
 
 	if (copy_to_user((void*) arg, &ioparam, sizeof(ioparam))) {
-		dev_err(inst->dev, "%s: Failed to copy_to_user\n", __func__);
+		dev_err(inst.dev, "%s: Failed to copy_to_user\n", __func__);
 		for (i = 0; i < n; i++)
 			(void) free_mem(ioparam.kern.dma[i], size[i]);
 		return -EFAULT;
@@ -242,7 +240,7 @@ static int ioctl_free_mem(unsigned long arg)
 	struct vc4mem_free_mem ioparam;
 
 	if (copy_from_user(&ioparam, (void*) arg, sizeof(ioparam))) {
-		dev_err(inst->dev, "%s: Failed to copy_from_user\n", __func__);
+		dev_err(inst.dev, "%s: Failed to copy_from_user\n", __func__);
 		return -EFAULT;
 	}
 
@@ -260,7 +258,7 @@ static int ioctl_cpu_cache_op(const unsigned long arg)
 	struct vc4mem_cpu_cache_op ioparam;
 
 	if (copy_from_user(&ioparam, (void*) arg, sizeof(ioparam))) {
-		dev_err(inst->dev, "%s: Failed to copy_from_user\n", __func__);
+		dev_err(inst.dev, "%s: Failed to copy_from_user\n", __func__);
 		return -EFAULT;
 	}
 
@@ -276,7 +274,7 @@ static int ioctl_cpu_cache_op(const unsigned long arg)
 
 static long vc4mem_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 {
-	dev_info(inst->dev, "%s: ioctl received: cmd=0x%08x\n", __func__, cmd);
+	dev_info(inst.dev, "%s: ioctl received: cmd=0x%08x\n", __func__, cmd);
 
 	switch (cmd) {
 	case VC4MEM_IOC_ALLOC_MEM:
@@ -289,7 +287,7 @@ static long vc4mem_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		return ioctl_cpu_cache_op(arg);
 
 	default:
-		dev_err(inst->dev, "%s: Invalid ioctl cmd: 0x%08x\n",
+		dev_err(inst.dev, "%s: Invalid ioctl cmd: 0x%08x\n",
 				__func__, cmd);
 		return -ENOTTY;
 	}
@@ -302,15 +300,15 @@ static int vc4mem_mmap(struct file *file, struct vm_area_struct *vma)
 	const size_t size = vma->vm_end - vma->vm_start;
 
 	if (size <= 0) {
-		dev_err(inst->dev, "%s: Invalid size=%zd\n", __func__, size);
+		dev_err(inst.dev, "%s: Invalid size=%zd\n", __func__, size);
 		return -EINVAL;
 	}
 	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size)) {
-		dev_err(inst->dev, "%s: Invalid phys range\n", __func__);
+		dev_err(inst.dev, "%s: Invalid phys range\n", __func__);
 		return -EINVAL;
 	}
 	if (!pfn_valid(vma->vm_pgoff)) {
-		dev_err(inst->dev, "%s: Only memory regions I served is "
+		dev_err(inst.dev, "%s: Only memory regions I served is "
 				"mmap'able here\n", __func__);
 		return -EINVAL;
 	}
@@ -344,13 +342,8 @@ static int vc4mem_dev_probe(struct platform_device *pdev)
 	int err;
 	struct device *dev = &pdev->dev;
 
-	inst = devm_kzalloc(dev, sizeof(*inst), GFP_KERNEL);
-	if (inst == NULL) {
-		dev_err(inst->dev, "%s: Failed to alloc inst\n", __func__);
-		return -ENOMEM;
-	}
+	inst.dev = dev;
 
-	inst->dev = dev;
 
 	/* Create character device entry. */
 	err = alloc_chrdev_region(&vc4mem_devid, DEVICE_MINOR, 1, DEVICE_NAME);
@@ -394,7 +387,6 @@ failed_class_create:
 failed_cdev_add:
 	unregister_chrdev_region(vc4mem_devid, 1);
 failed_cdev_create:
-	devm_kfree(dev, inst);
 	return err;
 }
 
@@ -426,7 +418,13 @@ static struct platform_driver vc4mem_dev_driver = {
 
 static int __init vc4mem_init(void)
 {
-	return platform_driver_register(&vc4mem_dev_driver);
+	int ret;
+
+	ret = platform_driver_register(&vc4mem_dev_driver);
+	if (ret)
+		return ret;
+
+	return ret;
 }
 module_init(vc4mem_init);
 
