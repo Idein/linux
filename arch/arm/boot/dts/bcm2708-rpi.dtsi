@@ -69,6 +69,7 @@
 		vc4mem: vc4mem {
 			compatible = "brcm,vc4mem";
 			firmware = <&firmware>;
+			power-domains = <&power RPI_POWER_DOMAIN_V3D>;
 			status = "disabled";
 		};
 

@@ -46,6 +46,7 @@
 #include <linux/module.h>
 #include <linux/cdev.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/uaccess.h>
 #include <linux/memblock.h>
 #include <linux/dma-mapping.h>
@@ -56,13 +57,24 @@
 #define DEVICE_NAME "vc4mem"
 #define DRIVER_NAME "vc4mem"
 #define DEVICE_MINOR 0
-#define MEM_ATTRS                                                      \
-	(                                                              \
-		/* VC4 requires memory to be contiguous. */            \
-		  DMA_ATTR_FORCE_CONTIGUOUS                            \
+#define MEM_ATTRS \
+	(	/* VC4 requires memory to be contiguous. */ \
+		  DMA_ATTR_FORCE_CONTIGUOUS \
 		/* This driver doesn't access the allocated memory. */ \
-		| DMA_ATTR_NO_KERNEL_MAPPING                           \
+		| DMA_ATTR_NO_KERNEL_MAPPING \
 	)
+
+/* These definitions are derived from drivers/gpu/drm/vc4/vc4_drv.h */
+#define V3D_READ(offset) readl(inst.v3d.start + offset)
+#define V3D_WRITE(offset, val) writel(val, inst.v3d.start + offset)
+#define V3D_IDENT0   0x00000
+# define V3D_EXPECTED_IDENT0 \
+	((2 << 24) | \
+	('V' << 0) | \
+	('3' << 8) | \
+	('D' << 16))
+#define V3D_L2CACTL  0x00020
+#define V3D_SLCACTL  0x00024
 
 static struct cdev vc4mem_cdev;
 static dev_t vc4mem_devid;
@@ -71,6 +83,11 @@ static struct device *vc4mem_dev;
 
 static struct {
 	struct device *dev;
+	struct {
+		phys_addr_t phys;
+		void __iomem *start;
+		size_t size;
+	} v3d;
 } inst;
 
 
@@ -153,10 +170,6 @@ static int free_mem(const dma_addr_t dma, const unsigned size)
 static int sync_cache_cpu(const vc4mem_cpu_cache_op_t op,
 		const dma_addr_t dma, const unsigned size)
 {
-	void (*sync_func)(struct device *dev, dma_addr_t dma, size_t size,
-			enum dma_data_direction dir);
-	enum dma_data_direction dir;
-
 	/*
 	 * - dma_sync_single_for_cpu:
 	 *     - dir=from_dev: Invalidate cache and mark page clean
@@ -170,12 +183,14 @@ static int sync_cache_cpu(const vc4mem_cpu_cache_op_t op,
 
 	switch (op) {
 	case VC4MEM_CPU_CACHE_OP_INVALIDATE:
-		sync_func = dma_sync_single_for_device;
-		dir = DMA_FROM_DEVICE;
+		/* GPU -> CPU */
+		dma_sync_single_for_cpu(inst.dev, dma, size, DMA_FROM_DEVICE);
 		break;
 	case VC4MEM_CPU_CACHE_OP_CLEAN:
-		sync_func = dma_sync_single_for_device;
-		dir = DMA_TO_DEVICE;
+		/* CPU -> GPU */
+		dma_sync_single_for_device(inst.dev, dma, size, DMA_TO_DEVICE);
+		V3D_WRITE(V3D_L2CACTL, 1 << 2);
+		V3D_WRITE(V3D_SLCACTL, 0xffffffff);
 		break;
 	default:
 		dev_err(inst.dev, "%s: Invalid cache op: %d\n",
@@ -183,10 +198,8 @@ static int sync_cache_cpu(const vc4mem_cpu_cache_op_t op,
 		return -EINVAL;
 	}
 
-	dev_info(inst.dev, "%s: Syncing addr=0x%08x size=0x%08x dir=%d\n",
-			__func__, (unsigned) dma, size, dir);
-
-	sync_func(inst.dev, dma, size, dir);
+	dev_info(inst.dev, "%s: Synced addr=0x%08x size=0x%08x\n",
+			__func__, (unsigned) dma, size);
 
 	return 0;
 }
@@ -307,11 +320,15 @@ static int vc4mem_mmap(struct file *file, struct vm_area_struct *vma)
 		dev_err(inst.dev, "%s: Invalid phys range\n", __func__);
 		return -EINVAL;
 	}
+	/* pfn is valid here if the page is mapped within this driver instance. */
+	/* Disabled because invalid pages are just to be mapped as noncached. */
+	/*
 	if (!pfn_valid(vma->vm_pgoff)) {
 		dev_err(inst.dev, "%s: Only memory regions I served is "
 				"mmap'able here\n", __func__);
 		return -EINVAL;
 	}
+	*/
 
 	/*
 	 * If the device is opened with O_SYNC, the prot will be writecombine,
@@ -337,13 +354,86 @@ static const struct file_operations vc4mem_fops = {
 	.mmap = vc4mem_mmap,
 };
 
+static int probe_v3d(void)
+{
+	int err;
+	struct device_node *np;
+	const __be32 *reg;
+	u64 size;
+	phys_addr_t phys;
+	void __iomem *addr;
+	u32 ident;
+
+	np = of_find_compatible_node(NULL, NULL, "brcm,bcm2835-v3d");
+	if (!np)
+		np = of_find_compatible_node(NULL, NULL, "brcm,vc4-v3d");
+
+	reg = of_get_address(np, 0, &size, NULL);
+	if (reg == NULL) {
+		dev_err(inst.dev, "%s: Failed to get V3D address and size\n", __func__);
+		err = -ENODEV;
+		goto failed_of;
+	}
+
+	phys = of_translate_address(np, reg);
+	if (phys == OF_BAD_ADDR) {
+		dev_err(inst.dev, "%s: Failed to translate V3D address\n", __func__);
+		err = -ENOMEM;
+		goto failed_of;
+	}
+
+	if (!request_mem_region(phys, size, DRIVER_NAME)) {
+		dev_err(inst.dev, "%s: Failed to request V3D region\n", __func__);
+		err = -ENOMEM;
+		goto failed_request_mem_region;
+	}
+
+	addr = ioremap_nocache(phys, size);
+	if (addr == NULL) {
+		dev_err(inst.dev, "%s: Failed to ioremap V3D address\n", __func__);
+		err = -ENOMEM;
+		goto failed_ioremap;
+	}
+
+	dev_info(inst.dev, "%s: V3D at 0x%08x 0x%08llx\n", __func__, phys, size);
+
+	inst.v3d.phys = phys;
+	inst.v3d.start = addr;
+	inst.v3d.size = size;
+
+	ident = V3D_READ(V3D_IDENT0);
+	if (ident != V3D_EXPECTED_IDENT0) {
+		dev_err(inst.dev, "%s: V3D_IDENT0: 0x%08x != 0x%08x\n", __func__,
+				ident, V3D_EXPECTED_IDENT0);
+		err = -ENOMEM;
+		goto failed_ident;
+	}
+
+	of_node_put(np);
+	return 0;
+
+failed_ident:
+	iounmap(addr);
+failed_ioremap:
+	release_mem_region(phys, size);
+failed_request_mem_region:
+failed_of:
+	of_node_put(np);
+	return err;
+}
+
+static void remove_v3d(void)
+{
+	release_mem_region(inst.v3d.phys, inst.v3d.size);
+	iounmap(inst.v3d.start);
+}
+
 static int vc4mem_dev_probe(struct platform_device *pdev)
 {
 	int err;
 	struct device *dev = &pdev->dev;
 
 	inst.dev = dev;
-
 
 	/* Create character device entry. */
 	err = alloc_chrdev_region(&vc4mem_devid, DEVICE_MINOR, 1, DEVICE_NAME);
@@ -376,6 +466,10 @@ static int vc4mem_dev_probe(struct platform_device *pdev)
 		goto failed_device_create;
 	}
 
+	err = probe_v3d();
+	if (err)
+		goto failed_device_create;
+
 	dev_info(dev, "%s: Initialized\n", __func__);
 
 	return 0;
@@ -392,6 +486,8 @@ failed_cdev_create:
 
 static int vc4mem_dev_remove(struct platform_device *pdev)
 {
+	remove_v3d();
+
 	device_destroy(vc4mem_class, vc4mem_devid);
 	class_destroy(vc4mem_class);
 	cdev_del(&vc4mem_cdev);
