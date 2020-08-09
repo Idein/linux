@@ -17,6 +17,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -37,6 +38,32 @@
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 #define DRIVER_PATCHLEVEL 0
+
+int v3d_bin_timeout_ms = 500;
+int v3d_render_timeout_ms = 500;
+int v3d_tfu_timeout_ms = 500;
+int v3d_csd_timeout_ms = 10000;
+int v3d_cache_clean_timeout_ms = 500;
+
+MODULE_PARM_DESC(bin_timeout_ms,
+	"Timeout for a bin job in ms (negative means infinity and default is 500 ms)");
+module_param_named(bin_timeout_ms, v3d_bin_timeout_ms, int, 0444);
+
+MODULE_PARM_DESC(render_timeout_ms,
+	"Timeout for a render job in ms (negative means infinity and default is 500 ms)");
+module_param_named(render_timeout_ms, v3d_render_timeout_ms, int, 0444);
+
+MODULE_PARM_DESC(tfu_timeout_ms,
+	"Timeout for a TFU job in ms (negative means infinity and default is 500 ms)");
+module_param_named(tfu_timeout_ms, v3d_tfu_timeout_ms, int, 0444);
+
+MODULE_PARM_DESC(csd_timeout_ms,
+	"Timeout for a CSD job in ms (negative means infinity and default is 10000 ms)");
+module_param_named(csd_timeout_ms, v3d_csd_timeout_ms, int, 0444);
+
+MODULE_PARM_DESC(cache_clean_timeout_ms,
+	"Timeout for a cache clean job in ms (negative means infinity and default is 500 ms)");
+module_param_named(cache_clean_timeout_ms, v3d_cache_clean_timeout_ms, int, 0444);
 
 #ifdef CONFIG_PM
 static int v3d_runtime_suspend(struct device *dev)

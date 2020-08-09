@@ -13,6 +13,13 @@
 
 #include "uapi/drm/v3d_drm.h"
 
+/* Module parameters. */
+extern int v3d_bin_timeout_ms;
+extern int v3d_render_timeout_ms;
+extern int v3d_tfu_timeout_ms;
+extern int v3d_csd_timeout_ms;
+extern int v3d_cache_clean_timeout_ms;
+
 struct clk;
 struct platform_device;
 struct reset_control;
