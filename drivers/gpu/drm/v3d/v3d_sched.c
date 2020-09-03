@@ -312,9 +312,24 @@ v3d_cl_job_timedout(struct drm_sched_job *sched_job, enum v3d_queue q,
 	u32 ctca = V3D_CORE_READ(0, V3D_CLE_CTNCA(q));
 	u32 ctra = V3D_CORE_READ(0, V3D_CLE_CTNRA(q));
 
+	/* If we've made progress, skip reset and let the timer get
+	 * rearmed.
+	 */
 	if (*timedout_ctca != ctca || *timedout_ctra != ctra) {
 		*timedout_ctca = ctca;
 		*timedout_ctra = ctra;
+
+		/* Because the timed-out job has been removed from
+		 * ring_mirror_list in drm_sched_job_timedout(), we need to
+		 * stop and restart the scheduler to rearm the timer.
+		 * Holding the reset_lock is necessary for concurrent
+		 * v3d_gpu_reset_for_timeout().
+		 */
+		mutex_lock(&v3d->reset_lock);
+		drm_sched_stop(sched_job->sched, sched_job);
+		drm_sched_start(sched_job->sched, sched_job);
+		mutex_unlock(&v3d->reset_lock);
+
 		return;
 	}
 
@@ -359,6 +374,18 @@ v3d_csd_job_timedout(struct drm_sched_job *sched_job)
 	 */
 	if (job->timedout_batches != batches) {
 		job->timedout_batches = batches;
+
+		/* Because the timed-out job has been removed from
+		 * ring_mirror_list in drm_sched_job_timedout(), we need to
+		 * stop and restart the scheduler to rearm the timer.
+		 * Holding the reset_lock is necessary for concurrent
+		 * v3d_gpu_reset_for_timeout().
+		 */
+		mutex_lock(&v3d->reset_lock);
+		drm_sched_stop(sched_job->sched, sched_job);
+		drm_sched_start(sched_job->sched, sched_job);
+		mutex_unlock(&v3d->reset_lock);
+
 		return;
 	}
 
