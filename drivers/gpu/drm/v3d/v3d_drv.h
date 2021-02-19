@@ -109,7 +109,7 @@ struct v3d_dev {
 	 * processes from trying to park the scheduler threads and
 	 * reset at once.
 	 */
-	struct mutex reset_lock;
+	spinlock_t reset_lock;
 
 	/* Lock taken when creating and pushing the GPU scheduler
 	 * jobs, to keep the sched-fence seqnos in order.

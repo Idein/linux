@@ -275,7 +275,7 @@ v3d_gpu_reset_for_timeout(struct v3d_dev *v3d, struct drm_sched_job *sched_job)
 {
 	enum v3d_queue q;
 
-	mutex_lock(&v3d->reset_lock);
+	spin_lock(&v3d->reset_lock);
 
 	/* block scheduler */
 	for (q = 0; q < V3D_MAX_QUEUES; q++)
@@ -295,7 +295,7 @@ v3d_gpu_reset_for_timeout(struct v3d_dev *v3d, struct drm_sched_job *sched_job)
 		drm_sched_start(&v3d->queue[q].sched, true);
 	}
 
-	mutex_unlock(&v3d->reset_lock);
+	spin_unlock(&v3d->reset_lock);
 }
 
 /* If the current address or return address have changed, then the GPU
@@ -325,10 +325,10 @@ v3d_cl_job_timedout(struct drm_sched_job *sched_job, enum v3d_queue q,
 		 * Holding the reset_lock is necessary for concurrent
 		 * v3d_gpu_reset_for_timeout().
 		 */
-		mutex_lock(&v3d->reset_lock);
+		spin_lock(&v3d->reset_lock);
 		drm_sched_stop(sched_job->sched, sched_job);
 		drm_sched_start(sched_job->sched, sched_job);
-		mutex_unlock(&v3d->reset_lock);
+		spin_unlock(&v3d->reset_lock);
 
 		return;
 	}
@@ -381,10 +381,10 @@ v3d_csd_job_timedout(struct drm_sched_job *sched_job)
 		 * Holding the reset_lock is necessary for concurrent
 		 * v3d_gpu_reset_for_timeout().
 		 */
-		mutex_lock(&v3d->reset_lock);
+		spin_lock(&v3d->reset_lock);
 		drm_sched_stop(sched_job->sched, sched_job);
 		drm_sched_start(sched_job->sched, sched_job);
-		mutex_unlock(&v3d->reset_lock);
+		spin_unlock(&v3d->reset_lock);
 
 		return;
 	}

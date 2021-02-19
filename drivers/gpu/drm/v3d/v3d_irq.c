@@ -81,11 +81,16 @@ v3d_irq(int irq, void *arg)
 	struct v3d_dev *v3d = arg;
 	u32 intsts;
 	irqreturn_t status = IRQ_NONE;
+	unsigned long flags;
+
+	spin_lock_irqsave(&v3d->reset_lock, flags);
 
 	intsts = V3D_CORE_READ(0, V3D_CTL_INT_STS);
 
 	/* Acknowledge the interrupts we're handling here. */
 	V3D_CORE_WRITE(0, V3D_CTL_INT_CLR, intsts);
+
+	spin_unlock_irqrestore(&v3d->reset_lock, flags);
 
 	if (intsts & V3D_INT_OUTOMEM) {
 		/* Note that the OOM status is edge signaled, so the
