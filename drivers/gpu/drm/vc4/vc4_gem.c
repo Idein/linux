@@ -39,6 +39,7 @@
 static void
 vc4_queue_hangcheck(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_queue_hangcheck");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	mod_timer(&vc4->hangcheck.timer,
@@ -285,6 +286,7 @@ vc4_save_hang_state(struct drm_device *dev)
 static void
 vc4_reset(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_reset");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	DRM_INFO("Resetting GPU.\n");
@@ -311,6 +313,7 @@ vc4_reset(struct drm_device *dev)
 static void
 vc4_reset_work(struct work_struct *work)
 {
+  DRM_INFO("Enter vc4_reset_work");
 	struct vc4_dev *vc4 =
 		container_of(work, struct vc4_dev, hangcheck.reset_work);
 
@@ -322,6 +325,7 @@ vc4_reset_work(struct work_struct *work)
 static void
 vc4_hangcheck_elapsed(struct timer_list *t)
 {
+  DRM_INFO("Enter vc4_hangcheck_elapsed");
 	struct vc4_dev *vc4 = from_timer(vc4, t, hangcheck.timer);
 	struct drm_device *dev = &vc4->base;
 	uint32_t ct0ca, ct1ca, qpurqcc;
@@ -373,6 +377,7 @@ vc4_hangcheck_elapsed(struct timer_list *t)
 static void
 submit_cl(struct drm_device *dev, uint32_t thread, uint32_t start, uint32_t end)
 {
+  DRM_INFO("Enter submit_cl");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	/* Set the current and end address of the control list.
@@ -386,6 +391,7 @@ int
 vc4_wait_for_seqno(struct drm_device *dev, uint64_t seqno, uint64_t timeout_ns,
 		   bool interruptible)
 {
+  DRM_INFO("Enter vc4_wait_for_seqno");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	int ret = 0;
 	unsigned long timeout_expire;
@@ -470,6 +476,7 @@ vc4_flush_texture_caches(struct drm_device *dev)
 void
 vc4_submit_next_bin_job(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_submit_next_bin_job");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec;
 
@@ -510,6 +517,7 @@ again:
 void
 vc4_submit_next_render_job(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_submit_next_render_job");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec = vc4_first_render_job(vc4);
 	int i;
@@ -540,6 +548,7 @@ vc4_submit_next_render_job(struct drm_device *dev)
 void
 vc4_move_job_to_render(struct drm_device *dev, struct vc4_exec_info *exec)
 {
+  DRM_INFO("Enter vc4_move_job_to_render");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	bool was_empty = list_empty(&vc4->render_job_list);
 
@@ -601,6 +610,7 @@ vc4_lock_bo_reservations(struct drm_device *dev,
 			 struct vc4_exec_info *exec,
 			 struct ww_acquire_ctx *acquire_ctx)
 {
+  DRM_INFO("Enter vc4_lock_bo_reservations");
 	int contended_lock = -1;
 	int i, ret;
 	struct drm_gem_object *bo;
@@ -680,6 +690,7 @@ vc4_queue_submit(struct drm_device *dev, struct vc4_exec_info *exec,
 		 struct ww_acquire_ctx *acquire_ctx,
 		 struct drm_syncobj *out_sync)
 {
+  DRM_INFO("Enter vc4_queue_submit");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *renderjob;
 	uint64_t seqno;
@@ -955,6 +966,7 @@ fail:
 static void
 vc4_complete_exec(struct drm_device *dev, struct vc4_exec_info *exec)
 {
+  DRM_INFO("Enter vc4_complete_exec");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	unsigned long irqflags;
 	unsigned i;
@@ -1128,6 +1140,7 @@ vc4_wait_bo_ioctl(struct drm_device *dev, void *data,
 static struct vc4_exec_info *
 vc4_exec_alloc(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_exec_alloc");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec;
 	int ret;
@@ -1308,6 +1321,7 @@ int
 vc4_firmware_qpu_execute(struct vc4_dev *vc4, u32 num_jobs,
 			 u32 control, u32 noflush, u32 timeout)
 {
+  DRM_INFO("Enter vc4_firmware_qpu_execute");
 	struct drm_device *dev = &vc4->base;
 	u32 control_paddr;
 	struct vc4_exec_info *exec;
@@ -1364,12 +1378,14 @@ vc4_firmware_qpu_execute(struct vc4_dev *vc4, u32 num_jobs,
 	 */
 	ret = vc4_wait_for_seqno(dev, seqno, ~0ull, true);
 
+  DRM_INFO("Done vc4_firmware_qpu_execute");
 	return ret;
 }
 
 static void vc4_gem_destroy(struct drm_device *dev, void *unused);
 int vc4_gem_init(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_gem_init");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	vc4->dma_fence_context = dma_fence_context_alloc(1);

@@ -61,6 +61,7 @@ DECLARE_WAIT_QUEUE_HEAD(render_wait);
 static void
 vc4_overflow_mem_work(struct work_struct *work)
 {
+  DRM_INFO("Enter vc4_overflow_mem_work");
 	struct vc4_dev *vc4 =
 		container_of(work, struct vc4_dev, overflow_mem_work);
 	struct vc4_bo *bo;
@@ -117,6 +118,7 @@ complete:
 static void
 vc4_irq_finish_bin_job(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_finish_bin_job");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *next, *exec = vc4_first_bin_job(vc4);
 
@@ -137,6 +139,7 @@ vc4_irq_finish_bin_job(struct drm_device *dev)
 static void
 vc4_cancel_bin_job(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_cancel_bin_job");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec = vc4_first_bin_job(vc4);
 
@@ -154,6 +157,7 @@ vc4_cancel_bin_job(struct drm_device *dev)
 static void
 vc4_irq_finish_render_job(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_finish_render_job");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec = vc4_first_render_job(vc4);
 	struct vc4_exec_info *nextbin, *nextrender;
@@ -199,6 +203,7 @@ vc4_irq_finish_render_job(struct drm_device *dev)
 static irqreturn_t
 vc4_irq(int irq, void *arg)
 {
+  DRM_INFO("Enter vc4_irq");
 	struct drm_device *dev = arg;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	uint32_t intctl, dbqitc;
@@ -264,6 +269,7 @@ vc4_irq(int irq, void *arg)
 static void
 vc4_irq_prepare(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_prepare");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	if (!vc4->v3d)
@@ -282,6 +288,7 @@ vc4_irq_prepare(struct drm_device *dev)
 void
 vc4_irq_enable(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_enable");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	if (!vc4->v3d)
@@ -297,6 +304,7 @@ vc4_irq_enable(struct drm_device *dev)
 void
 vc4_irq_disable(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_disable");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	if (!vc4->v3d)
@@ -318,6 +326,7 @@ vc4_irq_disable(struct drm_device *dev)
 
 int vc4_irq_install(struct drm_device *dev, int irq)
 {
+  DRM_INFO("Enter vc4_irq_install");
 	int ret;
 
 	if (irq == IRQ_NOTCONNECTED)
@@ -336,6 +345,7 @@ int vc4_irq_install(struct drm_device *dev, int irq)
 
 void vc4_irq_uninstall(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_uninstall");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	vc4_irq_disable(dev);
@@ -345,6 +355,7 @@ void vc4_irq_uninstall(struct drm_device *dev)
 /** Reinitializes interrupt registers when a GPU reset is performed. */
 void vc4_irq_reset(struct drm_device *dev)
 {
+  DRM_INFO("Enter vc4_irq_reset");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	unsigned long irqflags;
 
