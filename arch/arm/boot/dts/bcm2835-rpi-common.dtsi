@@ -9,4 +9,5 @@
 
 &v3d {
 	power-domains = <&power RPI_POWER_DOMAIN_V3D>;
+	firmware = <&firmware>;
 };

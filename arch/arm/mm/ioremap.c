@@ -407,6 +407,7 @@ void *arch_memremap_wb(phys_addr_t phys_addr, size_t size)
 						   MT_MEMORY_RW,
 						   __builtin_return_address(0));
 }
+EXPORT_SYMBOL(arch_memremap_wb);
 
 void __iounmap(volatile void __iomem *io_addr)
 {
