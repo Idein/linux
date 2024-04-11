@@ -32,6 +32,13 @@ struct rpi_firmware {
 
 	struct kref consumers;
 	u32 get_throttled;
+
+	struct vc4_dev *vc4;
+	int (*vc4_qpu_execute)(struct vc4_dev *vc4,
+			       u32 num_qpu,
+			       u32 control,
+			       u32 noflush,
+			       u32 timeout);
 };
 
 static struct platform_device *g_pdev;
@@ -75,6 +82,64 @@ rpi_firmware_transaction(struct rpi_firmware *fw, u32 chan, u32 data)
 }
 
 /**
+ * Peeks at the property request to see if it's something that we
+ * should pass off to vc4 instead.
+ */
+static int
+vc4_filter_property(struct rpi_firmware *fw, uint32_t *data, size_t tag_size)
+{
+	uint32_t tag = data[0];
+	int ret;
+
+	if (!fw->vc4)
+		return -ENOENT;
+
+	switch (tag) {
+	case RPI_FIRMWARE_EXECUTE_QPU: {
+		struct qpu_execute_packet {
+			u32 tag;
+			u32 bufsize;
+			u32 size;
+			u32 num_qpu;
+			u32 control;
+			u32 noflush;
+			u32 timeout_ms;
+		} *packet = (void *)data;
+
+		ret = fw->vc4_qpu_execute(fw->vc4,
+					  packet->num_qpu,
+					  packet->control,
+					  packet->noflush,
+					  packet->timeout_ms);
+		packet->size = 0x80000004;
+		packet->num_qpu = (ret != 0);
+
+		return 0;
+	}
+
+	case RPI_FIRMWARE_SET_ENABLE_QPU: {
+		struct qpu_enable_packet {
+			u32 tag;
+			u32 bufsize;
+			u32 size;
+			u32 enable;
+		} *packet = (void *)data;
+		/* If vc4 is present, userspace doesn't get to control
+		 * when the QPUs are off or on.  Just hand back the
+		 * return value indicating success.
+		 */
+		packet->size = 0x80000004;
+		packet->enable = 0;
+
+		return 0;
+	}
+
+	default:
+		return -ENOENT;
+	}
+}
+
+/**
  * rpi_firmware_property_list - Submit firmware property list
  * @fw:		Pointer to firmware structure from rpi_firmware_get().
  * @data:	Buffer holding tags.
@@ -95,6 +160,14 @@ int rpi_firmware_property_list(struct rpi_firmware *fw,
 	u32 *buf;
 	dma_addr_t bus_addr;
 	int ret;
+
+	/* NOTE: We're only handling filtering on the first property
+	 * here, and if it gets filtered then we skip the rest of
+	 * them.  This is enough for hello_fft.
+	 */
+	ret = vc4_filter_property(fw, data, tag_size);
+	if (ret != -ENOENT)
+		return ret;
 
 	/* Packets are processed a dword at a time. */
 	if (size & 3)
@@ -515,6 +588,22 @@ struct rpi_firmware *devm_rpi_firmware_get(struct device *dev,
 	return fw;
 }
 EXPORT_SYMBOL_GPL(devm_rpi_firmware_get);
+
+/**
+ * Called by the vc4 driver at its probe time, to request that QPU
+ * execution requests be redirected to it.
+ */
+void rpi_firmware_register_vc4(struct rpi_firmware *fw, struct vc4_dev *vc4,
+			       int (*qpu_execute)(struct vc4_dev *vc4,
+						  u32 num_qpu,
+						  u32 control,
+						  u32 noflush,
+						  u32 timeout))
+{
+	fw->vc4 = vc4;
+	fw->vc4_qpu_execute = qpu_execute;
+}
+EXPORT_SYMBOL_GPL(rpi_firmware_register_vc4);
 
 static struct platform_driver rpi_firmware_driver = {
 	.driver = {

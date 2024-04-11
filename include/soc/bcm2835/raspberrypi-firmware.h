@@ -249,4 +249,12 @@ static inline struct rpi_firmware *devm_rpi_firmware_get(struct device *dev,
 }
 #endif
 
+struct vc4_dev;
+void rpi_firmware_register_vc4(struct rpi_firmware *fw, struct vc4_dev *vc4,
+			       int (*qpu_execute)(struct vc4_dev *vc4,
+						  u32 num_qpu,
+						  u32 control,
+						  u32 noflush,
+						  u32 timeout));
+
 #endif /* __SOC_RASPBERRY_FIRMWARE_H__ */

@@ -154,7 +154,7 @@ vc4_cancel_bin_job(struct drm_device *dev)
 	vc4_submit_next_bin_job(dev);
 }
 
-static void
+void
 vc4_irq_finish_render_job(struct drm_device *dev)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
@@ -206,18 +206,28 @@ vc4_irq(int irq, void *arg)
 {
 	struct drm_device *dev = arg;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
-	uint32_t intctl;
+	uint32_t intctl, dbqitc;
 	irqreturn_t status = IRQ_NONE;
+	uint32_t srqcs;
+	uint32_t qpurqcc;
+	uint32_t qpurqcm;
 
 	barrier();
 	intctl = V3D_READ(V3D_INTCTL);
+	dbqitc = V3D_READ(V3D_DBQITC);
+	srqcs = V3D_READ(V3D_SRQCS);
+	qpurqcc = VC4_GET_FIELD(srqcs, V3D_SRQCS_QPURQCC);
+	qpurqcm = VC4_GET_FIELD(srqcs, V3D_SRQCS_QPURQCM);
 
 	/* Acknowledge the interrupts we're handling here. The binner
 	 * last flush / render frame done interrupt will be cleared,
 	 * while OUTOMEM will stay high until the underlying cause is
 	 * cleared.
 	 */
-	V3D_WRITE(V3D_INTCTL, intctl);
+	if (intctl)
+		V3D_WRITE(V3D_INTCTL, intctl);
+	if (dbqitc)
+		V3D_WRITE(V3D_DBQITC, dbqitc);
 
 	if (intctl & V3D_INT_OUTOMEM) {
 		/* Disable OUTOMEM until the work is done. */
@@ -240,6 +250,26 @@ vc4_irq(int irq, void *arg)
 		status = IRQ_HANDLED;
 	}
 
+	if (dbqitc) {
+		/* The job isn't done until all programs that were
+		 * spawned have sent an interrupt.
+		 *
+		 * XXX: The shader emits an interrupt that will land
+		 * in DBQITC, and then does THREND a few cycles later.
+		 * Do we have a race between the interrupt reaching
+		 * ARM and when these queue counts get updated?
+		 */
+		if (qpurqcc == qpurqcm) {
+			V3D_WRITE(V3D_SRQCS,
+				  V3D_SRQCS_QPURQCC_CLEAR |
+				  V3D_SRQCS_QPURQCM_CLEAR);
+			spin_lock(&vc4->job_lock);
+			vc4_irq_finish_render_job(dev);
+			spin_unlock(&vc4->job_lock);
+			status = IRQ_HANDLED;
+		}
+	}
+
 	return status;
 }
 
@@ -258,6 +288,7 @@ vc4_irq_prepare(struct drm_device *dev)
 	 * for us.
 	 */
 	V3D_WRITE(V3D_INTCTL, V3D_DRIVER_IRQS);
+	V3D_WRITE(V3D_DBQITC, ~0);
 }
 
 void
@@ -275,6 +306,8 @@ vc4_irq_enable(struct drm_device *dev)
 	 * enabled as soon as we have a binner BO allocated.
 	 */
 	V3D_WRITE(V3D_INTENA, V3D_INT_FLDONE | V3D_INT_FRDONE);
+	V3D_WRITE(V3D_DBQITC, ~0);
+	V3D_WRITE(V3D_DBQITE, ~0);
 }
 
 void
@@ -290,9 +323,11 @@ vc4_irq_disable(struct drm_device *dev)
 
 	/* Disable sending interrupts for our driver's IRQs. */
 	V3D_WRITE(V3D_INTDIS, V3D_DRIVER_IRQS);
+	V3D_WRITE(V3D_DBQITE, 0);
 
 	/* Clear any pending interrupts we might have left. */
 	V3D_WRITE(V3D_INTCTL, V3D_DRIVER_IRQS);
+	V3D_WRITE(V3D_DBQITC, ~0);
 
 	/* Finish any interrupt handler still in flight. */
 	synchronize_irq(vc4->irq);
@@ -344,6 +379,7 @@ void vc4_irq_reset(struct drm_device *dev)
 
 	/* Acknowledge any stale IRQs. */
 	V3D_WRITE(V3D_INTCTL, V3D_DRIVER_IRQS);
+	V3D_WRITE(V3D_DBQITC, ~0);
 
 	/*
 	 * Turn all our interrupts on.  Binner out of memory is the
@@ -352,6 +388,7 @@ void vc4_irq_reset(struct drm_device *dev)
 	 * memory yet.
 	 */
 	V3D_WRITE(V3D_INTENA, V3D_DRIVER_IRQS);
+	V3D_WRITE(V3D_DBQITE, ~0);
 
 	spin_lock_irqsave(&vc4->job_lock, irqflags);
 	vc4_cancel_bin_job(dev);

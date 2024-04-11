@@ -815,6 +815,12 @@ struct vc4_exec_info {
 	uint32_t uniforms_p;
 	uint32_t uniforms_size;
 
+	struct {
+		u32 code;
+		u32 uniforms;
+	} user_qpu_job[16];
+	u32 user_qpu_job_count;
+
 	/* Pointer to a performance monitor object if the user requested it,
 	 * NULL otherwise.
 	 */
@@ -1064,6 +1070,10 @@ int vc4_queue_seqno_cb(struct drm_device *dev,
 int vc4_gem_madvise_ioctl(struct drm_device *dev, void *data,
 			  struct drm_file *file_priv);
 
+int
+vc4_firmware_qpu_execute(struct vc4_dev *dev, u32 num_qpu,
+			 u32 control, u32 noflush, u32 timeout);
+
 /* vc4_hdmi.c */
 extern struct platform_driver vc4_hdmi_driver;
 
@@ -1079,6 +1089,7 @@ void vc4_irq_disable(struct drm_device *dev);
 int vc4_irq_install(struct drm_device *dev, int irq);
 void vc4_irq_uninstall(struct drm_device *dev);
 void vc4_irq_reset(struct drm_device *dev);
+void vc4_irq_finish_render_job(struct drm_device *dev);
 
 /* vc4_hvs.c */
 extern struct platform_driver vc4_hvs_driver;
