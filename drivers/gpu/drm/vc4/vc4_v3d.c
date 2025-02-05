@@ -416,6 +416,7 @@ int vc4_v3d_debugfs_init(struct drm_minor *minor)
 
 static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 {
+	DRM_INFO("enter vc4_v3d_bind");
 	struct platform_device *pdev = to_platform_device(dev);
 	struct drm_device *drm = dev_get_drvdata(master);
 	struct vc4_dev *vc4 = to_vc4_dev(drm);
@@ -424,16 +425,20 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 	int ret;
 
 	v3d = devm_kzalloc(&pdev->dev, sizeof(*v3d), GFP_KERNEL);
-	if (!v3d)
+	if (!v3d) {
+		DRM_INFO("exit vc4_v3d_bind (v3d)");
 		return -ENOMEM;
+	}
 
 	dev_set_drvdata(dev, v3d);
 
 	v3d->pdev = pdev;
 
 	v3d->regs = vc4_ioremap_regs(pdev, 0);
-	if (IS_ERR(v3d->regs))
+	if (IS_ERR(v3d->regs)) {
+		DRM_INFO("exit vc4_v3d_bind (v3d->regs)");
 		return PTR_ERR(v3d->regs);
+	}
 	v3d->regset.base = v3d->regs;
 	v3d->regset.regs = v3d_regs;
 	v3d->regset.nregs = ARRAY_SIZE(v3d_regs);
@@ -489,6 +494,7 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 	ret = vc4_irq_install(drm, vc4->irq);
 	if (ret) {
 		DRM_ERROR("Failed to install IRQ handler\n");
+		DRM_INFO("exit vc4_v3d_bind (vc4_irq_install error)");
 		goto err_put_runtime_pm;
 	}
 
@@ -500,16 +506,19 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 	of_node_put(firmware_node);
 	if (!vc4->firmware) {
 		DRM_DEBUG("Failed to get Raspberry Pi firmware reference.\n");
+		DRM_INFO("exit vc4_v3d_bind (vc4->firmware)");
 		return -EPROBE_DEFER;
 	}
 
 	rpi_firmware_register_vc4(vc4->firmware, vc4, vc4_firmware_qpu_execute);
 
+	DRM_INFO("exit vc4_v3d_bind with 0");
 	return 0;
 
 err_put_runtime_pm:
 	pm_runtime_put(dev);
 
+	DRM_INFO("exit vc4_v3d_bind with err");
 	return ret;
 }
 

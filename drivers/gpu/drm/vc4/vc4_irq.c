@@ -202,6 +202,7 @@ vc4_irq_finish_render_job(struct drm_device *dev)
 static irqreturn_t
 vc4_irq(int irq, void *arg)
 {
+	DRM_INFO("enter vc4_irq");
 	struct drm_device *dev = arg;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	uint32_t intctl, dbqitc;
@@ -249,6 +250,7 @@ vc4_irq(int irq, void *arg)
 	}
 
 	if (dbqitc) {
+		DRM_INFO("in dbqitc");
 		/* The job isn't done until all programs that were
 		 * spawned have sent an interrupt.
 		 *
@@ -258,6 +260,7 @@ vc4_irq(int irq, void *arg)
 		 * ARM and when these queue counts get updated?
 		 */
 		if (qpurqcc == qpurqcm) {
+			DRM_INFO("in qpurcc == qpurcm");
 			V3D_WRITE(V3D_SRQCS,
 				  V3D_SRQCS_QPURQCC_CLEAR |
 				  V3D_SRQCS_QPURQCM_CLEAR);
@@ -268,16 +271,20 @@ vc4_irq(int irq, void *arg)
 		}
 	}
 
+	DRM_INFO("exit vc4_irq");
 	return status;
 }
 
 static void
 vc4_irq_prepare(struct drm_device *dev)
 {
+	DRM_INFO("enter vc4_irq_prepare");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
-	if (!vc4->v3d)
+	if (!vc4->v3d) {
+		DRM_INFO("exit vc4_irq_prepare (vc4->v3d)");
 		return;
+	}
 
 	init_waitqueue_head(&vc4->job_wait_queue);
 	INIT_WORK(&vc4->overflow_mem_work, vc4_overflow_mem_work);
@@ -287,18 +294,24 @@ vc4_irq_prepare(struct drm_device *dev)
 	 */
 	V3D_WRITE(V3D_INTCTL, V3D_DRIVER_IRQS);
 	V3D_WRITE(V3D_DBQITC, ~0);
+	DRM_INFO("exit vc4_irq_prepare");
 }
 
 void
 vc4_irq_enable(struct drm_device *dev)
 {
+	DRM_INFO("enter vc4_irq_enable");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
-	if (WARN_ON_ONCE(vc4->gen > VC4_GEN_4))
+	if (WARN_ON_ONCE(vc4->gen > VC4_GEN_4)) {
+		DRM_INFO("exit vc4_irq_prepare (vc4->gen > VC4_GEN_4)");
 		return;
+	}
 
-	if (!vc4->v3d)
+	if (!vc4->v3d) {
+		DRM_INFO("exit vc4_irq_prepare (vc4->v3d)");
 		return;
+	}
 
 	/* Enable the render done interrupts. The out-of-memory interrupt is
 	 * enabled as soon as we have a binner BO allocated.
@@ -306,6 +319,7 @@ vc4_irq_enable(struct drm_device *dev)
 	V3D_WRITE(V3D_INTENA, V3D_INT_FLDONE | V3D_INT_FRDONE);
 	V3D_WRITE(V3D_DBQITC, ~0);
 	V3D_WRITE(V3D_DBQITE, ~0);
+	DRM_INFO("exit vc4_irq_enable");
 }
 
 void
@@ -335,23 +349,31 @@ vc4_irq_disable(struct drm_device *dev)
 
 int vc4_irq_install(struct drm_device *dev, int irq)
 {
+	DRM_INFO("enter vc4_irq_install");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	int ret;
 
-	if (WARN_ON_ONCE(vc4->gen > VC4_GEN_4))
+	if (WARN_ON_ONCE(vc4->gen > VC4_GEN_4)) {
+		DRM_INFO("exit vc4_irq_install with ENODEV");
 		return -ENODEV;
+	}
 
-	if (irq == IRQ_NOTCONNECTED)
+	if (irq == IRQ_NOTCONNECTED) {
+		DRM_INFO("exit vc4_irq_install with ENOTCONN");
 		return -ENOTCONN;
+	}
 
 	vc4_irq_prepare(dev);
 
 	ret = request_irq(irq, vc4_irq, 0, dev->driver->name, dev);
-	if (ret)
+	if (ret) {
+		DRM_INFO("exit vc4_irq_install without 0");
 		return ret;
+	}
 
 	vc4_irq_enable(dev);
 
+	DRM_INFO("exit vc4_irq_install with 0");
 	return 0;
 }
 
