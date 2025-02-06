@@ -501,9 +501,10 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_set_autosuspend_delay(dev, 40); /* a little over 2 frames. */
 
+
 	DRM_INFO("dev->init_name = %s\n", dev->init_name);
-	DRM_INFO("dev->device_type->name = %s\n", dev->device_type->name);
-	DRM_INFO("dev->device_driver->name = %s\n", dev->device_driver->name);
+	DRM_INFO("dev->type->name = %s\n", dev->type->name);
+	DRM_INFO("dev->driver->name = %s\n", dev->driver->name);
 	DRM_INFO("dev->of_node->name = %s\n", dev->of_node->name);
 	int count = of_count_phandle_with_args(dev->of_node, "firmware", NULL);
 	DRM_INFO("firmware phandle count: %d\n", count);
