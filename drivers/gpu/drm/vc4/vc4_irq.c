@@ -276,6 +276,7 @@ vc4_irq(int irq, void *arg)
 static void
 vc4_irq_prepare(struct drm_device *dev)
 {
+	DRM_INFO("enter vc4_irq_prepare");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	if (!vc4->v3d)
@@ -289,11 +290,13 @@ vc4_irq_prepare(struct drm_device *dev)
 	 */
 	V3D_WRITE(V3D_INTCTL, V3D_DRIVER_IRQS);
 	V3D_WRITE(V3D_DBQITC, ~0);
+	DRM_INFO("exit vc4_irq_prepare");
 }
 
 void
 vc4_irq_enable(struct drm_device *dev)
 {
+	DRM_INFO("enter vc4_irq_enable");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 
 	if (WARN_ON_ONCE(vc4->is_vc5))
@@ -308,6 +311,7 @@ vc4_irq_enable(struct drm_device *dev)
 	V3D_WRITE(V3D_INTENA, V3D_INT_FLDONE | V3D_INT_FRDONE);
 	V3D_WRITE(V3D_DBQITC, ~0);
 	V3D_WRITE(V3D_DBQITE, ~0);
+	DRM_INFO("exit vc4_irq_enable");
 }
 
 void
@@ -337,6 +341,7 @@ vc4_irq_disable(struct drm_device *dev)
 
 int vc4_irq_install(struct drm_device *dev, int irq)
 {
+	DRM_INFO("enter vc4_irq_install");
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	int ret;
 
@@ -354,6 +359,7 @@ int vc4_irq_install(struct drm_device *dev, int irq)
 
 	vc4_irq_enable(dev);
 
+	DRM_INFO("exit vc4_irq_install with 0");
 	return 0;
 }
 
