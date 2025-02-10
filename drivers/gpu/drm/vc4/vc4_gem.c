@@ -36,6 +36,15 @@
 #include "vc4_regs.h"
 #include "vc4_trace.h"
 
+/* arm64向け: arch_memremap_wb()が定義されていないため、memremap()を用いて定義する */
+#ifdef CONFIG_ARM64
+#include <linux/memremap.h>
+static inline void *arch_memremap_wb(phys_addr_t phys_addr, size_t size)
+{
+	return memremap(phys_addr, size, MEMREMAP_WB);
+}
+#endif
+
 static void
 vc4_queue_hangcheck(struct drm_device *dev)
 {
