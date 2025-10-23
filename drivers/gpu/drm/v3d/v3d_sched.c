@@ -871,7 +871,7 @@ v3d_sched_init(struct v3d_dev *v3d)
 {
 	int hw_jobs_limit = 1;
 	int job_hang_limit = 0;
-	int hang_limit_ms = 500;
+	int hang_limit_ms = 10000;
 	int ret;
 
 	ret = drm_sched_init(&v3d->queue[V3D_BIN].sched,
