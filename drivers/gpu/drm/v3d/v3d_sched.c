@@ -856,7 +856,7 @@ v3d_queue_sched_init(struct v3d_dev *v3d, const struct drm_sched_backend_ops *op
 	struct drm_sched_init_args args = {
 		.num_rqs = DRM_SCHED_PRIORITY_COUNT,
 		.credit_limit = 1,
-		.timeout = msecs_to_jiffies(500),
+		.timeout = msecs_to_jiffies(10000),
 		.dev = v3d->drm.dev,
 	};
 
