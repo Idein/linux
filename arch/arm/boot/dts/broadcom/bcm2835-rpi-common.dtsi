@@ -24,6 +24,7 @@
 &v3d {
 	clocks = <&firmware_clocks 5>;
 	power-domains = <&power RPI_POWER_DOMAIN_V3D>;
+	firmware = <&firmware>;
 };
 
 &vec {

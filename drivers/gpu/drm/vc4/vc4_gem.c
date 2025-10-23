@@ -37,6 +37,15 @@
 #include "vc4_regs.h"
 #include "vc4_trace.h"
 
+/* arm64向け: arch_memremap_wb()が定義されていないため、memremap()を用いて定義する */
+#ifdef CONFIG_ARM64
+#include <linux/memremap.h>
+static inline void *arch_memremap_wb(phys_addr_t phys_addr, size_t size)
+{
+	return memremap(phys_addr, size, MEMREMAP_WB);
+}
+#endif
+
 static void
 vc4_queue_hangcheck(struct drm_device *dev)
 {
@@ -346,6 +355,12 @@ vc4_hangcheck_elapsed(struct timer_list *t)
 		return;
 	}
 
+	/* Can't check hangs user qpu program execution */
+	if (render_exec && render_exec->user_qpu_job_count > 0) {
+		spin_unlock_irqrestore(&vc4->job_lock, irqflags);
+		return;
+	}
+
 	ct0ca = V3D_READ(V3D_CTNCA(0));
 	ct1ca = V3D_READ(V3D_CTNCA(1));
 
@@ -522,6 +537,7 @@ vc4_submit_next_render_job(struct drm_device *dev)
 {
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec = vc4_first_render_job(vc4);
+	int i;
 
 	if (!exec)
 		return;
@@ -537,8 +553,18 @@ vc4_submit_next_render_job(struct drm_device *dev)
 	 */
 	vc4_flush_texture_caches(dev);
 
-	trace_vc4_submit_cl(dev, true, exec->seqno, exec->ct1ca, exec->ct1ea);
-	submit_cl(dev, 1, exec->ct1ca, exec->ct1ea);
+	if (exec->user_qpu_job_count) {
+		/* XXX: Make sure we're idle. */
+		/* XXX: Set up VPM */
+		for (i = 0; i < exec->user_qpu_job_count; i++) {
+			V3D_WRITE(V3D_SRQUL, 1024);
+			V3D_WRITE(V3D_SRQUA, exec->user_qpu_job[i].uniforms);
+			V3D_WRITE(V3D_SRQPC, exec->user_qpu_job[i].code);
+		}
+	} else {
+		trace_vc4_submit_cl(dev, true, exec->seqno, exec->ct1ca, exec->ct1ea);
+		submit_cl(dev, 1, exec->ct1ca, exec->ct1ea);
+	}
 }
 
 void
@@ -995,6 +1021,36 @@ vc4_wait_bo_ioctl(struct drm_device *dev, void *data,
 	return ret;
 }
 
+static struct vc4_exec_info *
+vc4_exec_alloc(struct drm_device *dev)
+{
+	struct vc4_dev *vc4 = to_vc4_dev(dev);
+	struct vc4_exec_info *exec;
+	int ret;
+
+	exec = kcalloc(1, sizeof(*exec), GFP_KERNEL);
+	if (!exec) {
+		DRM_ERROR("malloc failure on exec struct\n");
+		return ERR_PTR(-ENOMEM);
+	}
+
+	mutex_lock(&vc4->power_lock);
+	if (vc4->power_refcount++ == 0) {
+		ret = pm_runtime_get_sync(&vc4->v3d->pdev->dev);
+		if (ret < 0) {
+			vc4->power_refcount--;
+			mutex_unlock(&vc4->power_lock);
+			kfree(exec);
+			return ERR_PTR(ret);
+		}
+	}
+	mutex_unlock(&vc4->power_lock);
+
+	INIT_LIST_HEAD(&exec->unref_list);
+
+	return exec;
+}
+
 /**
  * vc4_submit_cl_ioctl() - Submits a job (frame) to the VC4.
  * @dev: DRM device
@@ -1045,9 +1101,9 @@ vc4_submit_cl_ioctl(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	exec = kcalloc(1, sizeof(*exec), GFP_KERNEL);
-	if (!exec)
-		return -ENOMEM;
+	exec = vc4_exec_alloc(dev);
+	if (IS_ERR(exec))
+		return PTR_ERR(exec);
 
 	exec->dev = vc4;
 
@@ -1058,7 +1114,6 @@ vc4_submit_cl_ioctl(struct drm_device *dev, void *data,
 	}
 
 	exec->args = args;
-	INIT_LIST_HEAD(&exec->unref_list);
 
 	ret = vc4_cl_lookup_bos(dev, file_priv, exec);
 	if (ret)
@@ -1152,6 +1207,76 @@ fail_unreserve:
 	drm_exec_fini(&exec_ctx);
 fail:
 	vc4_complete_exec(&vc4->base, exec);
+
+	return ret;
+}
+
+int
+vc4_firmware_qpu_execute(struct vc4_dev *vc4, u32 num_jobs,
+			 u32 control, u32 noflush, u32 timeout)
+{
+	struct drm_device *dev = &vc4->base;
+	u32 control_paddr;
+	struct vc4_exec_info *exec;
+	struct control_args {
+		u32 uniforms;
+		u32 code;
+	} *control_args;
+	int ret, i;
+	uint64_t seqno;
+	struct drm_exec exec_ctx;
+
+	control_paddr = control & ~(BIT(31) | BIT(30));
+
+	if (num_jobs > ARRAY_SIZE(exec->user_qpu_job)) {
+		DRM_ERROR("V3D QPU execution request with too many jobs (%d)\n",
+			  num_jobs);
+		return -EINVAL;
+	}
+
+	exec = vc4_exec_alloc(dev);
+	if (IS_ERR(exec))
+		return PTR_ERR(exec);
+
+	ret = vc4_v3d_pm_get(vc4);
+	if (ret) {
+		kfree(exec);
+		return ret;
+	}
+
+	ret = vc4_lock_bo_reservations(exec, &exec_ctx);
+	if (ret) {
+		vc4_complete_exec(dev, exec);
+		return ret;
+	}
+
+	control_args = arch_memremap_wb(control_paddr, num_jobs * 2 * sizeof(u32));
+	if (!control_args) {
+		drm_exec_fini(&exec_ctx);
+		vc4_complete_exec(dev, exec);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < num_jobs; i++) {
+		exec->user_qpu_job[i].code = control_args[i].code;
+		exec->user_qpu_job[i].uniforms = control_args[i].uniforms;
+	}
+	iounmap(control_args);
+
+	exec->user_qpu_job_count = num_jobs;
+
+	ret = vc4_queue_submit(dev, exec, &exec_ctx, NULL);
+	if (ret) {
+		drm_exec_fini(&exec_ctx);
+		vc4_complete_exec(dev, exec);
+		return ret;
+	}
+	seqno = vc4->emit_seqno;
+
+	/* The mailbox interface is synchronous, so wait for the job
+	 * we just made to complete.
+	 */
+	ret = vc4_wait_for_seqno(dev, seqno, ~0ull, true);
 
 	return ret;
 }
