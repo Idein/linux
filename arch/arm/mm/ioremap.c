@@ -430,6 +430,7 @@ __arm_ioremap_exec(phys_addr_t phys_addr, size_t size, bool cached)
 	return __arm_ioremap_caller(phys_addr, size, mtype,
 			__builtin_return_address(0));
 }
+EXPORT_SYMBOL(arch_memremap_wb);
 
 void __arm_iomem_set_ro(void __iomem *ptr, size_t size)
 {
