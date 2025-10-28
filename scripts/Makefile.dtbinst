@@ -42,7 +42,19 @@ dtbs := $(foreach d, $(dtbs), $(if $(findstring overlays/,$(d)),$(d),$(notdir $(
 
 endif # CONFIG_ARCH_WANT_FLAT_DTB_INSTALL
 
-__dtbs_install: $(addprefix $(dst)/, $(dtbs))
+__dtbs_install: $(addprefix $(dst)/, $(dtbs)) install-overlays-readme
 	@:
+
+.PHONY: install-overlays-readme
+install-overlays-readme:
+	@if [ -n "$(dst)" ] && [ -f "$(obj)/overlays/README" ]; then \
+		echo "INSTALL overlays/README -> $(dst)/overlays/README"; \
+		mkdir -p "$(dst)/overlays"; \
+		install -m 0644 "$(obj)/overlays/README" "$(dst)/overlays/README"; \
+	elif [ -n "$(dst)" ] && [ -f "$(srctree)/$(obj)/overlays/README" ]; then \
+		echo "INSTALL overlays/README from $(srctree)/$(obj)/overlays/README -> $(dst)/overlays/README"; \
+		mkdir -p "$(dst)/overlays"; \
+		install -m 0644 "$(srctree)/$(obj)/overlays/README" "$(dst)/overlays/README"; \
+	fi
 
 .PHONY: $(PHONY)
