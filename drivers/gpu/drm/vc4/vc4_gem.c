@@ -1022,29 +1022,15 @@ vc4_wait_bo_ioctl(struct drm_device *dev, void *data,
 }
 
 static struct vc4_exec_info *
-vc4_exec_alloc(struct drm_device *dev)
+vc4_exec_alloc(void)
 {
-	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_exec_info *exec;
-	int ret;
 
 	exec = kcalloc(1, sizeof(*exec), GFP_KERNEL);
 	if (!exec) {
 		DRM_ERROR("malloc failure on exec struct\n");
 		return ERR_PTR(-ENOMEM);
 	}
-
-	mutex_lock(&vc4->power_lock);
-	if (vc4->power_refcount++ == 0) {
-		ret = pm_runtime_get_sync(&vc4->v3d->pdev->dev);
-		if (ret < 0) {
-			vc4->power_refcount--;
-			mutex_unlock(&vc4->power_lock);
-			kfree(exec);
-			return ERR_PTR(ret);
-		}
-	}
-	mutex_unlock(&vc4->power_lock);
 
 	INIT_LIST_HEAD(&exec->unref_list);
 
@@ -1101,7 +1087,7 @@ vc4_submit_cl_ioctl(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	exec = vc4_exec_alloc(dev);
+	exec = vc4_exec_alloc();
 	if (IS_ERR(exec))
 		return PTR_ERR(exec);
 
@@ -1234,7 +1220,7 @@ vc4_firmware_qpu_execute(struct vc4_dev *vc4, u32 num_jobs,
 		return -EINVAL;
 	}
 
-	exec = vc4_exec_alloc(dev);
+	exec = vc4_exec_alloc();
 	if (IS_ERR(exec))
 		return PTR_ERR(exec);
 
