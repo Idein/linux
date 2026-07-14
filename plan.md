@@ -297,13 +297,24 @@ test/userqpu-kernel-test.sh [反復回数]   # 既定3周。失敗が1件でも�
 - v8 では `make dtbs` と `make dtbs_install` も成功し、ログで
   `INSTALL overlays/README ... -> /work/dtbs-install-v8/overlays/README` を確認した。これは
   `scripts/Makefile.dtbinst` の修正がステージングに反映されることの直接確認である。
-- `build_kernel_deb.bash "1.20260609.0-0" v8` はコンパイル開始前の Debian build dependency
-  確認で停止した。使用した `bookworm-20251028` image には、6.18 が
-  `Build-Depends-Arch` に要求する native 側の `libdw-dev` と `python3` が入っていない。
-  `bindeb-pkg` はこれらの依存確認を省略しないため、原因は再現・確定している。
-  最小の builder 修正は Dockerfile の native apt パッケージ一覧へ `libdw-dev python3` を
-  追加して新しいローカル image tag で再ビルドすることだが、手順6の「失敗時は相談」に従い
-  **この builder/image の変更および v8/2712 の package 再実行は未実施**とする。
+- 元の `bookworm-20251028` image では、6.18 が `Build-Depends-Arch` に要求する native 側の
+  `libdw-dev` と `python3` がなく、`bindeb-pkg` の Debian build dependency 確認で停止した。
+  `rpi-kernel-builder` のローカル branch `codex/kernel-6.18-build-deps` に commit
+  `378d661` を作成し、Dockerfile の native apt パッケージ一覧へこの2パッケージだけを追加した。
+  その Dockerfile からローカル image
+  `idein/rpi-kernel-deb-builder:bookworm-20251028-kernel618deps`
+  (`sha256:43c96effa33551494dc99815b2695ec80638ebf9b92fa3842241a8f9419e48cc`) を作成した。builder の
+  remote への push や既存 image の変更は行っていない。
+- 上記 image と新しいビルド作業ディレクトリで、`build_kernel_deb.bash "1.20260609.0-0" v8`
+  (38分22秒) と `build_kernel_deb.bash "1.20260609.0-0" 2712` (27分20秒) をともに終了コード0で
+  完走した。両 image deb の `Package` / `Version` / `Architecture` と `overlays/README` の格納を
+  検査し、各 deb に README が1件だけ含まれることを確認した。
+  - v8: `linux-image-6.18.34-idein-rpi-v8_1.20260609.0-0-bookworm_arm64.deb` —
+    `linux-image-6.18.34-idein-rpi-v8` / `1.20260609.0-0-bookworm` / `arm64`、
+    SHA-256 `f63e4b74af31a91a80248ffb075cb335be369f82a4e0b624315037df0f6959b9`
+  - 2712: `linux-image-6.18.34-idein-rpi-2712_1.20260609.0-0-bookworm_arm64.deb` —
+    `linux-image-6.18.34-idein-rpi-2712` / `1.20260609.0-0-bookworm` / `arm64`、
+    SHA-256 `084e5b186102c8de2e5b2d16bd107a9fcb8ebd7b7abe3c1314c252b362c3a74f`
 
 ## パッチ適用のレビュー結果 (2026-07-13, Claude によるレビュー)
 
@@ -340,7 +351,53 @@ Codex が適用した `patched/stable_20260609`(4コミット)を独立にレビ
 - **ビルド対象ツリーの照合**: `.build/rpi-kernel-build-20260609-final.*/custom-kernel-build/linux`
   の HEAD が `patched/stable_20260609` と一致することを確認。
 
-ビルド検証の状況: 6.18 の native 依存(`libdw-dev` `python3`)を追加したローカル image
+ビルド検証の結果: 6.18 の native 依存(`libdw-dev` `python3`)を追加したローカル image
 `idein/rpi-kernel-deb-builder:bookworm-20251028-kernel618deps` で
-`build_kernel_deb.bash "1.20260609.0-0" v8` を実行中(レビュー時点で未完)。
-v8 完了後に deb 生成と overlays/README 格納を確認し、2712 も同様に実行する。
+`build_kernel_deb.bash "1.20260609.0-0"` の **v8 / 2712 が両方完走**(2026-07-13)。
+`.build/rpi-kernel-build-20260609-final.pDmExF/custom-kernel-build/` に
+`linux-image-6.18.34-idein-rpi-{v8,2712}_1.20260609.0-0-bookworm_arm64.deb`
+(+ headers / libc-dev)が生成された。両 image deb に
+`/usr/lib/linux-image-6.18.34-idein-rpi-{v8,2712}/overlays/README` が格納されていることを
+`dpkg-deb -c` で確認済み(検証節の全項目クリア)。
+
+残作業: 実機動作テスト(qmkl スクリプト、上記「実機動作テスト」節)→ push・タグ付け
+(手順7、ユーザー実施)。builder の image 変更(Dockerfile への `libdw-dev python3` 追加)は
+ローカル image のみで、rpi-kernel-builder リポジトリへの反映は別途必要。
+
+## Trixie 向け builder と package 検証結果 (2026-07-14)
+
+- **Bookworm は保持した。** 既存の `Dockerfile`、ローカル image
+  `idein/rpi-kernel-deb-builder:bookworm-20251028-kernel618deps`、および
+  `.build/rpi-kernel-build-20260609-final.pDmExF/` の Bookworm 成果物は変更・削除していない。
+  Trixie は独立した Dockerfile・image tag・成果物ディレクトリで扱う。
+- `rpi-kernel-builder` のローカル branch `codex/kernel-6.18-trixie` に commit `b1b0da8`
+  (`Add trixie kernel deb builder`)を作成した。`Dockerfile.trixie` は
+  `debian:trixie-slim` を基に、6.18 の native build dependency である `libdw-dev` と
+  `python3` を含める。Trixie では `libncurses-dev` を使用し、`adduser` が slim image に
+  ないため既存ユーザーを sudo グループへ加える処理を `usermod` で行う。
+- `build_kernel_deb.bash` は `DEBIAN_SUITE` を受け取るようにし、未指定時は従来どおり
+  `bookworm` とする。許可する値は `bookworm` / `trixie` のみで、package version は
+  `${PKG_VERSION}-${DEBIAN_SUITE}` となる。従来の Bookworm 呼び出しとの互換性を維持する。
+- ローカルで作成した Trixie image は
+  `idein/rpi-kernel-deb-builder:trixie-20260714-kernel618deps`
+  (`sha256:c5710447aaa38629b5a521331a53bde458063af62f959147cbe69c536688a581`)。
+  コンテナ内で `VERSION_CODENAME=trixie`、`DEBIAN_SUITE=trixie`、`libdw-dev=0.192-4`、
+  `python3=3.13.5-1` を確認した。
+- ソース HEAD `33a595afca710845f493a4c37745dae13f91e471` を新しい作業ディレクトリ
+  `.build/rpi-kernel-build-20260609-trixie.3sVqJO/custom-kernel-build/` へ複製し、上記 image で
+  `build_kernel_deb.bash "1.20260609.0-0" v8` (37分38秒) と
+  `build_kernel_deb.bash "1.20260609.0-0" 2712` (35分12秒) をともに終了コード0で完走した。
+  両 image deb の `Package` / `Version` / `Architecture` と `overlays/README` を検査し、
+  README は各 package に1件だけ格納されることを確認した。
+  - v8: `linux-image-6.18.34-idein-rpi-v8_1.20260609.0-0-trixie_arm64.deb` —
+    `linux-image-6.18.34-idein-rpi-v8` / `1.20260609.0-0-trixie` / `arm64`、
+    SHA-256 `268c460b6eec7ac55507eba0a4d1fed5cb878b8874bb015f8a052445a203c559`、
+    raw kernel `build-v8/arch/arm64/boot/Image`
+  - 2712: `linux-image-6.18.34-idein-rpi-2712_1.20260609.0-0-trixie_arm64.deb` —
+    `linux-image-6.18.34-idein-rpi-2712` / `1.20260609.0-0-trixie` / `arm64`、
+    SHA-256 `cb9039e31c8f787a88ca2abb97a3d2ccc9f77e030d063b22e997426f0c92311e`、
+    raw kernel `build-2712/arch/arm64/boot/Image`
+- 変更はローカルのみであり、builder の remote への push、既存 Docker image の置換、CI/release
+  workflow の変更は行っていない。CI は明示的に切り替えない限り従来の Bookworm image を使う。
+  Bookworm/Trixie の image package は同名で version だけが異なるため、同一 rootfs へ同居させず、
+  利用する Debian suite に対応した方を選んで導入する。
