@@ -165,6 +165,13 @@ static void vc4_v3d_init_hw(struct drm_device *dev)
 
 	/* XXX: Fix the user QPU VPM share at 16 for now. */
 	V3D_WRITE(V3D_VPMBASE, 16);
+
+	/* Enable QPU to host interrupt.  This is lost whenever the v3d
+	 * power domain is turned off by runtime PM, so it must be
+	 * restored here (called on every runtime resume) and not just
+	 * at bind time.
+	 */
+	V3D_WRITE(V3D_DBCFG, 1);
 }
 
 int vc4_v3d_get_bin_slot(struct vc4_dev *vc4)
@@ -464,9 +471,6 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 		ret = -EINVAL;
 		goto err_put_runtime_pm;
 	}
-
-	/* Enable QPU to host interrupt */
-	V3D_WRITE(V3D_DBCFG, 1);
 
 	/* Reset the binner overflow address/size at setup, to be sure
 	 * we don't reuse an old one.
