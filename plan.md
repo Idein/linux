@@ -351,7 +351,100 @@ Codex が適用した `patched/stable_20260609`(4コミット)を独立にレビ
 - **ビルド対象ツリーの照合**: `.build/rpi-kernel-build-20260609-final.*/custom-kernel-build/linux`
   の HEAD が `patched/stable_20260609` と一致することを確認。
 
-ビルド検証の結果: 6.18 の native 依存(`libdw-dev` `python3`)を追加したローカル image
+## 実機テスト状況と引き継ぎ (2026-07-14, Claude → Codex)
+
+### 実機環境(構築済み)
+
+- 対象機: **Raspberry Pi 3B+**, `pi@192.168.11.45`(パスワード raspberry、
+  鍵 `~/.ssh/raspi_userqpu_test` 登録済み)。OS は RPiOS **trixie** arm64。
+- カーネル `linux-image-6.18.34-idein-rpi-v8` **1.20260609.0-0-trixie** インストール・起動済み
+  (`uname -r` = 6.18.34-idein-rpi-v8)。DTB はパッチ入り
+  (`/proc/device-tree/soc/v3d@7ec00000/firmware` あり)。`vc4_v3d` bind 済み。
+- `~/src/` に qmkl / mailbox / librpimemmgr / qpu-assembler2 / qpu-bin-to-hex /
+  py-videocore を配置し、**全スタックをビルド済み**。生成 deb(回収して再利用可能):
+  - `~/src/mailbox/build/libmailbox_3.1.1_arm64.deb`
+  - `~/src/librpimemmgr/build/librpimemmgr_5.0.0_arm64.deb`(vcsm 依存のため
+    `dpkg -i --force-depends` でインストール済み)
+  - `~/src/qmkl/qmkl-1.0.0-Linux.deb`
+- vcsm: **aarch64 の userland ビルドは libvcsm を生成しない**ため手動ビルドして
+  `/opt/vc/lib/libvcsm.so` に配置済み(userland の
+  `host_applications/linux/libs/sm/user-vcsm.c` を gcc -shared でビルド、
+  ヘッダは `/opt/vc/include/interface/vcsm/user-vcsm.h` に配置。
+  `/etc/ld.so.conf.d/00-vc.conf` 作成済み)。deb 化は未実施(残作業)。
+- py-videocore は `~/venv-pyvc`(qmkl ビルド時のみ必要)。`rpi-vcsm` は PyPI に
+  ないため `git+https://github.com/Idein/rpi-vcsm.git` から導入。
+- WSL 側リポジトリへの未コミット修正(rsync 済み、要 commit):
+  - `qmkl/CMakeLists.txt`: `cmake_minimum_required` 3.0→3.10(CMake 4 対応)、
+    aarch64 分岐追加(`-mfloat-abi`/`-mfpu` は 32-bit 専用のため)
+  - `qmkl/src/include/local/error.h`: `exit_handler` に extern 付与(GCC 10+ の
+    -fno-common 対応)
+  - `qmkl/test/userqpu-kernel-test.sh`: 実機テストスクリプト(新規)
+
+### 発見したカーネルバグ(修正済み・再ビルド中)
+
+**テスト実行で全ケース HANG する実バグを発見・修正した。**
+
+- 症状: scopy/vsAbs/sgemm すべて EXECUTE_QPU の ioctl から返らない。
+  ハング中スタックは `vc4_wait_for_seqno ← vc4_firmware_qpu_execute ←
+  rpi_firmware_property_list`。
+- 証拠: `V3D_SRQCS = 0x00010100`(QPU 要求1・**完了1** = プログラム自体は完走)、
+  v3d IRQ(/proc/interrupts の irq 52)カウント 0、
+  `/dev/mem` 直読みで **`V3D_DBCFG = 0`**(DBQITE=0xfff は生きている)。
+- 原因: `V3D_DBCFG`(QPU→ホスト割り込み有効)は bind 時に一度書くだけで、
+  runtime PM による v3d 電源断でレジスタが消え、resume 経路
+  (`vc4_v3d_init_hw`/`vc4_irq_enable`)では誰も書き直さない。
+  **PM 参照リーク(a8eec37d で修正)がこのバグを隠していた**(リークすると
+  v3d が suspend しないため DBCFG が消えない)。6.12 の現行リリースにも同じ
+  潜在バグがある(リークで顕在化しないだけ)。
+- 修正: **`cccbe495a89c` "Fix QPU host interrupt enable lost across V3D runtime
+  suspend"**(patched/stable_20260609 の新 tip)。`V3D_WRITE(V3D_DBCFG, 1)` を
+  bind から `vc4_v3d_init_hw()`(bind + 全 runtime resume で実行)へ移動。
+
+### 進行中・残作業(Codex への引き継ぎ)
+
+1. **カーネル再ビルド(進行中)**: container `208fc8d6aebb`
+   (image `idein/rpi-kernel-deb-builder:trixie-20260714-kernel618deps`)が
+   `.build/rpi-kernel-build-20260609-trixie.3sVqJO` で v8 を再ビルド中。
+   ビルドツリーは cccbe495a89c に更新済み。`docker wait 208fc8d6aebb` で完了待ち →
+   `custom-kernel-build/linux-image-*v8*.deb` のタイムスタンプ更新を確認。
+   deb 名は既存と同一(1.20260609.0-0-trixie)なので上書きに注意。
+2. 新しい v8 deb を Pi へ scp → `sudo dpkg -i`(再インストール)→
+   /boot/firmware への配線を確認(config.txt の `kernel=` 行の指す先に
+   `/boot/vmlinuz-6.18.34-idein-rpi-v8` をコピーし直す。DTB は変更なしのため
+   そのままで可)→ **再起動**(現在 v3d のジョブキューがハングした exec で
+   詰まっており、再起動は必須。ハング中の scopy プロセスが残っている場合あり)。
+3. 再起動後にテスト実行: `cd ~/src/qmkl && sudo ./test/userqpu-kernel-test.sh`
+   (/dev/vcio が root 専用のため sudo 必須)。
+   合格条件: scopy/vsAbs/sgemm 3周 PASS + runtime PM が suspended に戻る + dmesg クリーン。
+   検証ポイント: 修正が正しければ「v3d が一度 suspend した後の最初のジョブ」も
+   完了する(数分置いて2回目を実行すると suspend→resume 経路を確実に踏める)。
+4. 2712 の再ビルド(同 image で FLAVOR=2712)と bookworm 側
+   (`.build/rpi-kernel-build-20260609-final.pDmExF`、image
+   `bookworm-20251028-kernel618deps`)の v8/2712 再ビルドも DBCFG 修正込みで
+   やり直すこと(既存 deb は cccbe495a89c を含まない)。
+5. 注意: この Pi は **低電圧警告(Undervoltage detected)が頻発**している。
+   テストが不安定な場合は電源を疑うこと。
+
+### 実機テスト結果 (2026-07-14, DBCFG 修正カーネルで合格)
+
+DBCFG 修正(cccbe495a89c)入りカーネル `1.20260609.0-1-trixie` (v8) を Pi 3B+ に
+インストール・再起動後、`sudo ./test/userqpu-kernel-test.sh` を **2回**実行
+(2回目は1〜2分アイドル後 = v3d が完全に runtime suspend した状態からの復帰を検証)。
+
+- **2回とも 11 passed / 0 failed**。
+  - scopy / vsAbs: GPU=CPU 完全一致 ×3周
+  - sgemm: max abs error 0.0009〜0.0010(fp32 として正常)×3周
+  - runtime PM: 全ジョブ後 `suspended`(PM リーク修正の実証)
+  - dmesg: vc4/v3d エラーなし
+- v3d の autosuspend は約 40ms のため、テストバイナリ間でも suspend→resume を
+  繰り返しており、DBCFG 修正が壊れていれば1回目から HANG する。2回目(長時間
+  アイドル後)も PASS したことで修正の検証は完了。
+- 修正前カーネル(a8eec37d 時点)では全ケース HANG することを確認済み(再現性あり)。
+
+これで検証節の全項目 + 実機動作テストがクリア。残りは push・タグ付け(ユーザー実施)と
+deb 再ビルドの完了確認のみ。
+
+ビルド検証の結果(DBCFG 修正前の記録): 6.18 の native 依存(`libdw-dev` `python3`)を追加したローカル image
 `idein/rpi-kernel-deb-builder:bookworm-20251028-kernel618deps` で
 `build_kernel_deb.bash "1.20260609.0-0"` の **v8 / 2712 が両方完走**(2026-07-13)。
 `.build/rpi-kernel-build-20260609-final.pDmExF/custom-kernel-build/` に
